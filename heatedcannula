@@ -1,0 +1,108 @@
+/*
+ * ----------------------------------------------------------------------------
+ * "THE BEER-WARE LICENSE" (Revision 42):
+ * <aegorsuch@magpiinnovations.com> wrote this file.  As long as you retain this notice you
+ * can do whatever you want with this stuff. If we meet some day, and you think
+ * this stuff is worth it, you can buy me a beer in return.   Alex Gorsuch
+ * ----------------------------------------------------------------------------
+ */
+
+unsigned int ADCValue;
+double temp_pv, temp_sv;
+double timer1_counter; //for timer
+boolean stringComplete = false;  // whether the string is complete
+boolean start = false;  //start controling temperature
+String mySt = "";
+int delay_output;
+boolean relay_on, relay_on_off;
+const byte relay = 2; //relay output on Pin 2
+void setup() {
+pinMode(relay,OUTPUT);
+analogReference(EXTERNAL);
+Serial.begin(9600);
+//--------------------------timer setup
+noInterrupts();           // disable all interrupts
+TCCR1A = 0;
+TCCR1B = 0;
+timer1_counter = 59286;   // preload timer 65536-16MHz/256/2Hz (34286 for 0.5sec) (59286 for 0.1sec)
+TCNT1 = timer1_counter;   // preload timer
+TCCR1B |= (1 << CS12);    // 256 prescaler
+TIMSK1 |= (1 << TOIE1);   // enable timer overflow interrupt
+interrupts();             // enable all interrupts
+//--------------------------timer setup
+}
+void loop() {
+if (stringComplete) {
+// clear the string when COM receiving is completed
+mySt = "";  //mySt is blank until '\n' is received
+stringComplete = false;
+}
+//receive command from Visual Studio
+if (mySt.substring(0,10) == "temp_start"){
+start = true;
+}
+if (mySt.substring(0,9) == "temp_stop"){
+start = false;
+}
+if (mySt.substring(0,8) == "temp_set"){
+temp_sv = mySt.substring(8,mySt.length()).toFloat();  //get string after temp_set
+}
+if(start) //start controlling temperature - "start" command from Visual Studio
+{
+if (temp_pv < temp_sv - 2.0)  //on heating
+{
+relay_on = true;
+}
+if (temp_pv > temp_sv + 2.0) //off heating
+{
+digitalWrite(relay,0);
+relay_on = false;
+}
+if (relay_on) relay_on_sequence();  //on heating by sequence on_off
+}
+else  //stop controlling temperature - "stop" command from Visual Studio
+{
+digitalWrite(relay,0);
+}
+}
+ISR(TIMER1_OVF_vect)        // interrupt service routine - tick every 0.1sec
+{
+TCNT1 = timer1_counter;   // set timer
+ADCValue = analogRead(0);
+temp_pv = 0.00007*ADCValue*ADCValue-0.1849*ADCValue+103.02+2.3;
+
+//Serial.print(ADCValue); //un-comment for calibration
+//Serial.print("---");    //un-comment for calibration
+Serial.println(temp_pv);
+}
+void serialEvent() {
+while (Serial.available()) {
+// get the new byte:
+char inChar = (char)Serial.read();
+// add it to the inputString:
+if (inChar != '\n') {
+mySt += inChar;
+}
+// if the incoming character is a newline, set a flag
+// so the main loop can do something about it:
+if (inChar == '\n') {
+stringComplete = true;
+}
+}
+}
+void relay_on_sequence()
+{
+if (relay_on_off)
+{
+digitalWrite(relay,1);
+delay_output++;
+if (delay_output >= 30000) relay_on_off = false;
+}
+else
+{
+digitalWrite(relay,0);
+delay_output++;
+if (delay_output >= 30000) relay_on_off = true;
+}
+if (delay_output >= 30000) delay_output = 0;
+}
